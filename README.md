@@ -20,3 +20,4 @@ This repository contains Terraform configurations to deploy a **production-ready
    ```sh
    git clone https://github.com/rinavillaruz/terraform-aws-kubernetes.git
    cd terraform-aws-kubernetes
+2. Provision Jenkins, AWS and Terraform locally https://gist.github.com/rinavillaruz/66c5de53833aa0e3a357cc9650e96724
