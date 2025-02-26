@@ -5,7 +5,7 @@ This repository contains Terraform configurations to deploy a **production-ready
 ## 🛠️ Features
 - **Security Groups** – Configurable Security groups for Bastion host, Control Plane and Worker Nodes
 - **VPC & Networking** – Configurable VPC, subnets, NAT, IGW
-- **KEY Pairs** – Create Key-Paird
+- **KEY Pairs** – Create Key-Pairs
 - **Control Plane and Worker Nodes** – PENDING
 - **EC2 Instances** –  PENDING
 - **Terraform Modules** – Modular and reusable code structure using Workspaces
