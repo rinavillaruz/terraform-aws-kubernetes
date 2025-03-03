@@ -22,16 +22,27 @@ resource "aws_subnet" "public_subnets" {
     Name = "${terraform.workspace} - Public Subnet ${count.index + 1}"
   }
 }
- 
-# Six private subnets (3 for Control Plane / 3 for Worker Nodes)
+
 resource "aws_subnet" "private_subnets" {
-  count             = length(var.private_subnet_cidrs)
+  count             = min(length(var.private_subnet_cidrs), length(var.azs[terraform.workspace]))
   vpc_id            = aws_vpc.main.id
-  cidr_block        = element(var.private_subnet_cidrs, count.index)
-  availability_zone = element(var.azs[terraform.workspace], count.index)
+  cidr_block        = var.private_subnet_cidrs[count.index]
+  availability_zone = var.azs[terraform.workspace][count.index] # Ensures 1 AZ per subnet
 
   tags = {
     Name = "${terraform.workspace} - Private Subnet ${count.index + 1}"
+  }
+}
+
+resource "aws_subnet" "public_subnets_alb" {
+  count                   = 2  # Create only two subnets
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = var.public_subnet_alb_cidrs[count.index]
+  availability_zone       = var.azs[terraform.workspace][count.index] # Ensures each subnet is in a different AZ
+  map_public_ip_on_launch = true  # Enables public access for instances
+
+  tags = {
+    Name = "${terraform.workspace} - Public Subnet ALB ${count.index + 1}"
   }
 }
 
