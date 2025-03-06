@@ -21,6 +21,18 @@ resource "aws_vpc_security_group_ingress_rule" "bastion_ssh" {
   }
 }
 
+resource "aws_vpc_security_group_ingress_rule" "bastion_ssh_anywhere" {
+  security_group_id = aws_security_group.bastion.id
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = {
+    Name = "${terraform.workspace} - SSH Incoming Anywhere - Bastion SG"
+  }
+}
+
 # Bastion Host Egress Rule (Allow SSH to Control Plane & Worker Nodes)
 resource "aws_vpc_security_group_egress_rule" "bastion_egress" {
   security_group_id             = aws_security_group.bastion.id

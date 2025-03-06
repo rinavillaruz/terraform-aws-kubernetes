@@ -79,6 +79,18 @@ resource "aws_instance" "bastion" {
   }
 }
 
+# Allocate an Elastic IP for each bastion host
+resource "aws_eip" "bastion_eip" {
+  count    = length(var.public_subnet_cidrs)
+  domain   = "vpc"
+}
+
+# Associate each Elastic IP with a corresponding bastion instance
+resource "aws_eip_association" "bastion_eip_assoc" {
+  count         = length(var.public_subnet_cidrs)
+  instance_id   = aws_instance.bastion[count.index].id
+  allocation_id = aws_eip.bastion_eip[count.index].id
+}
 
 resource "aws_instance" "control_plane" {
   count                   = 3  # High availability with 3 control plane nodes
