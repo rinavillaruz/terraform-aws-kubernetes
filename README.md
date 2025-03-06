@@ -26,3 +26,8 @@ This repository contains Terraform configurations to deploy a **production-ready
 3. Create a workspace
    ```sh
    terraform workspace new development
+
+## 🚀 Changelog
+- Associated an Elastic IP (EIP) to the bastion host instances.
+- Implemented aws_eip and aws_eip_association resources in Terraform.
+
