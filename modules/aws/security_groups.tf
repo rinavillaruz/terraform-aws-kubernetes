@@ -46,17 +46,17 @@ resource "aws_vpc_security_group_egress_rule" "bastion_egress" {
   }
 }
 
-resource "aws_vpc_security_group_egress_rule" "bastion_egress_workers" {
-  security_group_id = aws_security_group.bastion.id
-  from_port         = 22
-  to_port           = 22
-  ip_protocol         = "tcp"
-  referenced_security_group_id = aws_security_group.worker_nodes.id
+# resource "aws_vpc_security_group_egress_rule" "bastion_egress_workers" {
+#   security_group_id = aws_security_group.bastion.id
+#   from_port         = 22
+#   to_port           = 22
+#   ip_protocol         = "tcp"
+#   referenced_security_group_id = aws_security_group.bastion.id
 
-  tags = {
-    Name = "${terraform.workspace} - SSH Outgoing - Bastion / Worker Nodes SG"
-  }
-}
+#   tags = {
+#     Name = "${terraform.workspace} - SSH Outgoing - Bastion / Worker Nodes SG"
+#   }
+# }
 
 // CONTROL PLANE
 # Control Plane Security Group
@@ -87,10 +87,10 @@ resource "aws_vpc_security_group_ingress_rule" "control_plane_api" {
   from_port         = 6443
   to_port           = 6443
   ip_protocol         = "tcp"
-  referenced_security_group_id = aws_security_group.worker_nodes.id
+  cidr_ipv4         = "0.0.0.0/0"
 
   tags = {
-    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG / Worker Nodes SG"
+    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG - Kubernetes API Server"
   }
 }
 
@@ -99,22 +99,42 @@ resource "aws_vpc_security_group_ingress_rule" "control_plane_etcd" {
   from_port                     =   2379
   to_port                       =   2380
   ip_protocol                   =   "tcp"
-  referenced_security_group_id  =   aws_security_group.control_plane.id
+  cidr_ipv4                   = aws_vpc.main.cidr_block
   tags = {
-    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG / Control Plane SG"
+    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG - etcd Server Client API"
   }
 }
 
-# Control Plane Egress Rules
-resource "aws_vpc_security_group_egress_rule" "control_plane_egress_workers" {
+resource "aws_vpc_security_group_ingress_rule" "control_plane_self_control_plane" {
   security_group_id             =   aws_security_group.control_plane.id
   from_port                     =   10250
   to_port                       =   10250
   ip_protocol                   =   "tcp"
-  referenced_security_group_id  =   aws_security_group.worker_nodes.id
-
+  cidr_ipv4                   = aws_vpc.main.cidr_block
   tags = {
-    Name = "${terraform.workspace} - TCP Outgoing - Control Plane SG / Worker Nodes SG"
+    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG - self, Control Plane"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "control_plane_kube_scheduler" {
+  security_group_id             =   aws_security_group.control_plane.id
+  from_port                     =   10259
+  to_port                       =   10259
+  ip_protocol                   =   "tcp"
+  cidr_ipv4                   = aws_vpc.main.cidr_block
+  tags = {
+    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG - kube scheduler"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "control_plane_kube_controller_manager" {
+  security_group_id             =   aws_security_group.control_plane.id
+  from_port                     =   10257
+  to_port                       =   10257
+  ip_protocol                   =   "tcp"
+  cidr_ipv4                     = aws_vpc.main.cidr_block
+  tags = {
+    Name = "${terraform.workspace} - TCP Incoming - Control Plane SG - kube controller manager"
   }
 }
 
@@ -127,58 +147,12 @@ resource "aws_vpc_security_group_egress_rule" "control_plane_egress_all" {
   }
 }
 
-// WORKER NODES
-# Worker Nodes Security Group
-resource "aws_security_group" "worker_nodes" {
-  name        = "worker-nodes-sg"
-  description = "Security group for Kubernetes worker nodes"
-  vpc_id      = aws_vpc.main.id
-  tags = {
-    Name = "${terraform.workspace} - Worker Nodes SG"
-  }
+resource "aws_vpc_security_group_ingress_rule" "allow_internal_all" {
+  security_group_id = aws_security_group.control_plane.id
+  from_port         = 0
+  to_port           = 65535
+  ip_protocol       = "tcp"
+  cidr_ipv4         = aws_vpc.main.cidr_block
 }
 
-# Worker Nodes Ingress Rules
-resource "aws_vpc_security_group_ingress_rule" "worker_ssh" {
-  security_group_id = aws_security_group.worker_nodes.id
-  from_port         = 22
-  to_port           = 22
-  ip_protocol         = "tcp"
-  referenced_security_group_id = aws_security_group.bastion.id
-  tags = {
-    Name = "${terraform.workspace} - SSH Incoming - Worker Nodes SG / Bastion SG"
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "worker_kubelet" {
-  security_group_id = aws_security_group.worker_nodes.id
-  from_port         = 10250
-  to_port           = 10250
-  ip_protocol         = "tcp"
-  referenced_security_group_id = aws_security_group.control_plane.id
-  tags = {
-    Name = "${terraform.workspace} - TCP Incoming - Worker Nodes SG / Control Plane SG"
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "worker_nodeport" {
-  security_group_id = aws_security_group.worker_nodes.id
-  from_port         = 30000
-  to_port           = 32767
-  ip_protocol         = "tcp"
-  cidr_ipv4        = "0.0.0.0/0"  # Adjust based on needs
-
-  tags = {
-    Name = "${terraform.workspace} - TCP Incoming - Worker Nodes SG"
-  }
-}
-
-# Worker Nodes Egress Rules
-resource "aws_vpc_security_group_egress_rule" "worker_egress_all" {
-  security_group_id = aws_security_group.worker_nodes.id
-  ip_protocol         = "-1"
-  cidr_ipv4        = "0.0.0.0/0"
-  tags = {
-    Name = "${terraform.workspace} - Outgoing - Worker Nodes SG"
-  }
-}
+// TODO:: Worker Nodes Security Group

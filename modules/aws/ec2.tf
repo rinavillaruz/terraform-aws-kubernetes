@@ -1,7 +1,7 @@
 # Ec2
 resource "aws_instance" "bastion" {
   count                   = length(var.public_subnet_cidrs)
-  ami                     = "ami-064519b8c76274859"  # Replace with a Debian 12 AMI ID
+  ami                     = "ami-0779caf41f9ba54f0"  # Replace with a Ubuntu 12 AMI ID
   instance_type           = "t3.micro"
   key_name                = aws_key_pair.generated_key.key_name
   vpc_security_group_ids  = [aws_security_group.bastion.id]
@@ -27,12 +27,18 @@ resource "aws_eip_association" "bastion_eip_assoc" {
 
 resource "aws_instance" "control_plane" {
   count                   = 3  # High availability with 3 control plane nodes
-  ami                     = "ami-064519b8c76274859"  # Replace with a Debian 12 AMI ID
-  instance_type           = "t3.medium"
+  ami                     = "ami-0779caf41f9ba54f0"  # Replace with a Ubuntu 12 AMI ID
+  instance_type           = "t3.xlarge"
   key_name                = aws_key_pair.generated_key.key_name
   vpc_security_group_ids  = [aws_security_group.control_plane.id]
   subnet_id               = aws_subnet.private_subnets[count.index].id  # Fix: Access the ID properly
   iam_instance_profile    = aws_iam_instance_profile.kubernetes_master.name
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+    delete_on_termination = true
+  }
 
   tags = {
     Name = "${terraform.workspace} - Control Plane Node ${count.index + 1}"
@@ -41,7 +47,7 @@ resource "aws_instance" "control_plane" {
 
 resource "aws_instance" "worker_nodes" {
   count                   = 3  # Adjust based on workload needs
-  ami                     = "ami-064519b8c76274859"  # Replace with a Debian 12 AMI ID
+  ami                     = "ami-0779caf41f9ba54f0"  # Replace with a Ubuntu 12 AMI ID or Debian 12
   instance_type           = "t3.large"
   key_name                = aws_key_pair.generated_key.key_name
   vpc_security_group_ids  = [aws_security_group.worker_nodes.id]

@@ -43,3 +43,40 @@ This repository contains Terraform configurations to deploy a **production-ready
 ## 📝 Changelog
 - Associated an Elastic IP (EIP) to the bastion host instances.
 - Implemented aws_eip and aws_eip_association resources in Terraform.
+
+## Policies
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetRole",
+                "iam:GetInstanceProfile",
+                "iam:GetPolicy",
+                "iam:ListAttachedUserPolicies",
+                "iam:GetUser",
+                "iam:CreatePolicy",
+                "iam:AttachUserPolicy",
+                "iam:AttachRolePolicy",
+                "iam:CreateRole",
+                "iam:PassRole",
+                "iam:ListInstanceProfiles",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:CreateInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:DeleteInstanceProfile"
+            ],
+            "Resource": [
+                "arn:aws:iam::847153342117:policy/Terraform-User-Attached",
+                "arn:aws:iam::847153342117:role/kubernetes-*",
+                "arn:aws:iam::847153342117:instance-profile/kubernetes-*",
+                "arn:aws:iam::847153342117:user/terraform*"
+            ]
+        }
+    ]
+}
+```
