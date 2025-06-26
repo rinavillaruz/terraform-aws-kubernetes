@@ -1,4 +1,4 @@
-# Terraform AWS Kubernetes Multi-Cluster
+# Terraform AWS Multi-Cluster Kubernetes
 
 This repository contains Terraform configurations to deploy a **production-ready Kubernetes multi-cluster** on AWS. It leverages Terraform modules for infrastructure automation.
 
