@@ -1,12 +1,16 @@
-output "private_key_path" {
-  value = local_file.private_key.filename
+output "debug_private_key_path_from_module" {
+  value = local_file.private_key
 }
 
-output "public_key" {
-  value     = tls_private_key.example.public_key_openssh
-  sensitive = true
+output "debug_public_key_path_from_module" {
+  value = aws_key_pair.generated_key.public_key
 }
 
-output "current_workspace" {
-  value = terraform.workspace
+output "debug_network_lb_dns" {
+  value = aws_lb.k8s_api.dns_name
+}
+
+output "debug_join_command" {
+  description = "Join command from SSM Parameter Store"
+  value       = aws_ssm_parameter.join_command.value
 }

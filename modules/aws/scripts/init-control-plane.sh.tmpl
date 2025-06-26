@@ -1,0 +1,457 @@
+#!/bin/bash
+set -e
+
+# Enhanced logging function
+log_step() {
+    local step="$1"
+    local message="$2"
+    echo "[$step] $message" | sudo tee -a /var/log/k8s-install-success.txt > /dev/null
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$step] $message"
+}
+
+log_error() {
+    local step="$1"
+    local message="$2"
+    echo "ERROR [$step] $message" | sudo tee -a /var/log/k8s-install-error.txt > /dev/null
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR [$step] $message" >&2
+}
+
+# Function to check if command succeeded
+check_command() {
+    if [ $? -ne 0 ]; then
+        log_error "$1" "$2"
+        exit 1
+    fi
+}
+
+wait_for_variables() {
+    max_attempts=30
+    sleep_interval=2
+    attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        log_step "0" "Attempt $attempt/$max_attempts: Checking for required variables..."
+        
+        # Debug: Show current variable values
+        log_step "0" "control_plane_master_private_ip: '${control_plane_master_private_ip}'"
+        log_step "0" "control_plane_endpoint: '${control_plane_endpoint}'"
+        log_step "0" "is_first_control_plane: '${is_first_control_plane}'"
+        
+        # Check if all variables are set and non-empty
+        if [ -n "${control_plane_master_private_ip}" ] && [ -n "${control_plane_endpoint}" ] && [ -n "${is_first_control_plane}" ]; then
+            log_step "0" "All required variables are now set!"
+            return 0
+        fi
+        
+        log_step "0" "One or more variables not yet available. Waiting $sleep_interval seconds before retry..."
+        
+        sleep $sleep_interval
+        attempt=$((attempt + 1))
+    done
+    
+    log_error "INIT" "Timeout waiting for required environment variables after $((max_attempts * sleep_interval)) seconds"
+    return 1
+}
+
+if ! wait_for_variables; then
+    exit 1
+fi
+
+if [ -z "${control_plane_master_private_ip}" ] || [ -z "${control_plane_endpoint}" ] || [ -z "${is_first_control_plane}" ]; then
+    log_error "INIT" "Required environment variables not set after waiting"
+    exit 1
+fi
+
+swapoff -a
+check_command "1" "FAILED to disable swap"
+log_step "1" "SUCCEEDED to disable swap"
+
+sed -i '/ swap / s/^/#/' /etc/fstab
+check_command "2" "FAILED to comment swap in fstab"
+log_step "2" "SUCCEEDED to comment swap in fstab"
+
+cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.ipv4.ip_forward = 1
+EOF
+check_command "3" "FAILED packet forwarding"
+log_step "3" "SUCCEEDED packet forwarding"
+
+sysctl --system
+check_command "4" "FAILED to apply sysctl settings"
+log_step "4" "SUCCEEDED to apply sysctl params without reboot"
+
+for attempt in 1 2 3; do
+    if apt-get update; then
+        break
+    else
+        log_error "5" "FAILED apt-get update failed (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+apt-get install -y ca-certificates curl gnupg lsb-release containerd apt-transport-https unzip
+check_command "6" "FAILED to install required packages"
+log_step "6" "SUCCEEDED Installed packages: ca-certificates curl gnupg lsb-release containerd apt-transport-https unzip"
+
+mkdir -p /etc/apt/keyrings
+check_command "7" "FAILED to create keyrings directory"
+log_step  "7" "SUCCEEDED to create keyring directory if it doesn't exist"
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+check_command "8" "FAILED to download and save the Docker GPG key in dearmored format"
+log_step  "8" "SUCCEEDED to download and save the Docker GPG key in dearmored format"
+
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+check_command "9" "FAILED to make the key readable"
+log_step  "9" "SUCCEEDED to make the key readable"
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+check_command "10" "FAILED to add Docker repository"
+log_step "10" "SUCCEEDED to add Docker repository"
+
+for attempt in 1 2 3; do
+    if apt-get update; then
+        break
+    else
+        log_error "11" "FAILED apt-get update failed (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+log_step "11" SUCCEEDED to install containerd""
+
+mkdir -p /etc/containerd
+check_command "12" "FAILED to create containerd directory"
+log_step "12" "SUCCEEDED to create containerd directory"
+
+containerd config default | tee /etc/containerd/config.toml
+check_command "13" "FAILED to generate containerd config"
+log_step "13" "SUCCEEDED to generate containerd config"
+
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+check_command "14" "FAILED to update containerd config"
+log_step "14" "SUCCEEDED to update containerd config"
+
+systemctl restart containerd
+check_command "15" "FAILED to restart containerd"
+log_step "15" "SUCCEEDED to restart containerd"
+
+systemctl enable containerd
+check_command "16" "FAILED to enable containerd"
+log_step "16" "SUCCEEDED to enable containerd"
+
+for attempt in 1 2 3; do
+    if curl --connect-timeout 30 --max-time 60 -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg; then
+        break
+    else
+        log_error "17" "FAILED to download Kubernetes GPG key (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+check_command "18" "FAILED to add Kubernetes repository"
+log_step "18" "SUCCEEDED to add Kubernetes repository"
+
+apt-get update
+check_command "19" "FAILED to update package list"
+log_step "19" "SUCCEEDED to update package list"
+
+apt-get install -y kubelet kubeadm kubectl
+check_command "20" "FAILED to install Kubernetes components"
+log_step "20" "SUCCEEDED to install Kubernetes components"
+
+apt-mark hold kubelet kubeadm kubectl
+check_command "21" "FAILED to hold Kubernetes packages"
+log_step "21" "SUCCEEDED to hold Kubernetes packages"
+
+systemctl enable --now kubelet
+check_command "22" "FAILED to enable kubelet"
+log_step "22" "SUCCEEDED to enable kubelet"
+
+log_step "23" "Control Plane is ready. Run your kubeadm init or join command! First control plane ${is_first_control_plane}"
+
+for attempt in 1 2 3; do
+    if curl --connect-timeout 30 --max-time 300 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; then
+        break
+    else
+        log_error "24" "FAILED to download AWS CLI (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+unzip awscliv2.zip
+check_command "25" "FAILED to unzip AWS CLI"
+log_step "25" "SUCCEEDED to unzip AWS CLI"
+
+sudo ./aws/install
+check_command "26" "FAILED to install AWS CLI"
+log_step "26" "SUCCEEDED to install AWS CLI"
+
+if ! aws --version; then
+    log_error "27" "FAILED AWS CLI installation verification"
+    exit 1
+fi
+log_step "27" "aws --version"
+
+if [ "${is_first_control_plane}" = "true" ]; then
+  if ! kubeadm config validate --config <(cat <<EOF
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "${control_plane_master_private_ip}"
+  bindPort: 6443
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+controlPlaneEndpoint: "${control_plane_master_private_ip}:6443"
+apiServer:
+  certSANs:
+    - "${control_plane_endpoint}"
+networking:
+  podSubnet: "192.168.0.0/16"
+EOF
+); then
+    log_error "28" "FAILED kubeadm configuration validation"
+    exit 1
+fi
+
+  kubeadm init \
+    --control-plane-endpoint "${control_plane_master_private_ip}:6443" \
+    --apiserver-advertise-address="${control_plane_master_private_ip}" \
+    --upload-certs \
+    --pod-network-cidr=192.168.0.0/16 \
+    --apiserver-cert-extra-sans "${control_plane_endpoint}"
+
+  check_command "29" "FAILED kubeadm init"
+  log_step "29" "SUCCEEDED to initializing kubeadm"
+
+  # To start using your cluster, you need to run the following as ubuntu user
+  export KUBE_USER=ubuntu
+  mkdir -p /home/$KUBE_USER/.kube
+  check_command "30" "FAILED to create .kube directory"
+  log_step "30" "SUCCEEDED to create .kube directory"
+
+  sudo cp -i /etc/kubernetes/admin.conf /home/$KUBE_USER/.kube/config
+  check_command "31" "FAILED to copy kubeconfig"
+  log_step "31" "SUCCEEDED to copy kubeconfig"
+
+  sudo chown $KUBE_USER:$KUBE_USER /home/$KUBE_USER/.kube/config
+  check_command "32" "FAILED to set kubeconfig ownership"
+  log_step "32" "SUCCEEDED to set kubeconfig ownership"
+
+  log_step "33" "Waiting for control plane to respond to kubectl..."
+
+  control_plane_ready=false
+  for i in {1..30}; do
+    if KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes &>/dev/null; then
+      log_step "34" "SUCCEEDED Control plane is responsive."
+      control_plane_ready=true
+      break
+    fi
+    log_step "34" "WAITING for control plane... ($i/30)"
+    sleep 5
+  done
+
+  if [ "$control_plane_ready" = false ]; then
+    log_error "34" "FAILED Control plane failed to become ready within 150 seconds"
+    exit 1
+  fi
+
+  for attempt in 1 2 3; do
+    if KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml; then
+      log_step "35" "SUCCEEDED to Installed Calico"
+      break
+    else
+      log_error "35" "FAILED to install Calico (attempt $attempt/3)"
+      if [ $attempt -eq 3 ]; then
+        exit 1
+      fi
+      sleep 10
+    fi
+  done
+
+  # Backup certificates with error checking
+  if [ ! -f /etc/kubernetes/pki/apiserver.crt ]; then
+    log_error "36" "apiserver.crt not found"
+    exit 1
+  fi
+
+  sudo mv /etc/kubernetes/pki/apiserver.crt /etc/kubernetes/pki/apiserver.crt.bak
+  check_command "36" "FAILED to backup apiserver.crt"
+  log_step "36" "SUCCEEDED to backup apiserver.crt"
+
+  sudo mv /etc/kubernetes/pki/apiserver.key /etc/kubernetes/pki/apiserver.key.bak
+  check_command "37" "FAILED to backup apiserver.key"
+  log_step "37" "SUCCEEDED to backup apiserver.key"
+
+  # Create the config with NLB DNS as SAN:
+cat <<EOF | sudo tee /root/kubeadm-dns.yaml
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+controlPlaneEndpoint: "${control_plane_endpoint}:6443"
+apiServer:
+  certSANs:
+    - "${control_plane_endpoint}"
+    - "${control_plane_master_private_ip}"
+EOF
+
+  check_command "38" "FAILED to create kubeadm-dns.yaml (create the config with NLB DNS as SAN)"
+  log_step "38" "SUCCEEDED to create kubeadm-dns.yaml (create the config with NLB DNS as SAN)"
+
+  sudo kubeadm init phase certs apiserver --config /root/kubeadm-dns.yaml
+  check_command "39" "FAILED to regenerate API server certificates"
+  log_step "39" "SUCCEEDED to regenerate API server certificates"
+
+  sudo systemctl restart kubelet
+  check_command "40" "FAILED to restart kubelet"
+  log_step "40" "SUCCEEDED to restart kubelet"
+
+  JOIN_COMMAND=$(kubeadm token create --print-join-command 2>/dev/null)
+  if [ -z "$JOIN_COMMAND" ]; then
+    log_error "41" "FAILED to generate join command"
+    exit 1
+  fi
+  log_step "41" "SUCCEEDED to generate join command $JOIN_COMMAND"
+
+  # Get the certificate key for control-plane nodes
+  CERT_KEY=$(sudo kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n 1)
+  if [ -z "$CERT_KEY" ]; then
+    log_error "42" "FAILED to generate certificate key"
+    exit 1
+  fi
+  log_step "42" "SUCCEEDED to generate cert key $CERT_KEY"
+
+  CONTROL_PLANE_JOIN_COMMAND="$JOIN_COMMAND --control-plane --certificate-key $CERT_KEY"
+  log_step "43" "SUCCEEDED to generate control plane join command $CONTROL_PLANE_JOIN_COMMAND"
+
+  WORKER_NODE_JOIN_COMMAND="$JOIN_COMMAND"
+  log_step "44" "SUCCEEDED to generate worker node join command $WORKER_NODE_JOIN_COMMAND"
+
+  JOIN_COMMAND_WITH_DNS=$(echo "$CONTROL_PLANE_JOIN_COMMAND" | sed "s/${control_plane_master_private_ip}:6443/${control_plane_endpoint}:6443/g")
+  log_step "45" "SUCCEEDED to generate join dns command $JOIN_COMMAND_WITH_DNS"
+  
+  WORKER_NODE_JOIN_COMMAND_WITH_DNS=$(echo "$WORKER_NODE_JOIN_COMMAND" | sed "s/${control_plane_master_private_ip}:6443/${control_plane_endpoint}:6443/g")
+  log_step "46" "SUCCEEDED to generate join dns command worker node $WORKER_NODE_JOIN_COMMAND_WITH_DNS"
+  
+  for attempt in 1 2 3; do
+    if aws ssm put-parameter \
+      --name "/k8s/control-plane/join-command" \
+      --value "$JOIN_COMMAND_WITH_DNS" \
+      --type "SecureString" \
+      --overwrite \
+      --region "us-east-1" \
+      --cli-connect-timeout 10 \
+      --cli-read-timeout 30; then
+      log_step "47" "SUCCEEDED to store Control Plane Join Command in SSM"
+      break
+    else
+      log_error "47" "FAILED to store control plane join command in SSM (attempt $attempt/3)"
+      if [ $attempt -eq 3 ]; then
+        exit 1
+      fi
+      sleep 10
+    fi
+  done
+
+  for attempt in 1 2 3; do
+    if aws ssm put-parameter \
+      --name "/k8s/worker-node/join-command" \
+      --value "$WORKER_NODE_JOIN_COMMAND_WITH_DNS" \
+      --type "SecureString" \
+      --overwrite \
+      --region "us-east-1" \
+      --cli-connect-timeout 10 \
+      --cli-read-timeout 30; then
+      log_step "48" "SUCCEEDED to store Worker Node Join Command in SSM"
+      break
+    else
+      log_error "48" "FAILED to store Worker Node Join Command in SSM (attempt $attempt/3)"
+      if [ $attempt -eq 3 ]; then
+        exit 1
+      fi
+      sleep 10
+    fi
+  done
+
+  # Needs to wait for 2 mins for worker nodes to show
+  sleep 120
+
+  if workers=$(KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes --no-headers 2>/dev/null | grep '<none>' | awk '{print $1}'); then
+    for worker in $workers; do
+      if [ -n "$worker" ]; then
+        log_step "49" "Labeling $worker as worker..."
+        if ! KUBECONFIG=/etc/kubernetes/admin.conf kubectl label node $worker node-role.kubernetes.io/worker=worker; then
+          log_error "50" "Failed to label worker node $worker"
+        fi
+      fi
+    done
+    log_step "50" "SUCCEEDED Worker Node role changed from <none> to worker"
+  else
+    log_step "50" "FAILED No worker nodes found to label"
+  fi
+else
+  sleep 120
+  log_step "28" "Waited 2 minutes before retrieving join command"
+
+  for attempt in 1 2 3; do
+    JOIN_CMD=$(aws ssm get-parameter \
+          --region us-east-1 \
+          --name "/k8s/control-plane/join-command" \
+          --with-decryption \
+          --query "Parameter.Value" \
+          --output text \
+          --no-cli-pager \
+          --cli-read-timeout 30 \
+          --cli-connect-timeout 10 2>/dev/null)
+    
+    if [ $? -eq 0 ] && [ -n "$JOIN_CMD" ] && [[ "$JOIN_CMD" != *"error"* ]] && [[ "$JOIN_CMD" != "None" ]]; then
+      log_step "29" "SUCCEEDED to retrieve the command $JOIN_CMD"
+      break
+    else
+      log_error "29" "FAILED to retrieve join command from SSM (attempt $attempt/3)"
+      if [ $attempt -eq 3 ]; then
+        log_error "30" "FAILED to retrieve the command after 3 attempts"
+        exit 1
+      fi
+      sleep 20
+    fi
+  done
+
+  if eval "sudo $JOIN_CMD"; then
+    log_step "31" "SUCCEEDED to join the control plane"
+  else
+    log_error "31" "FAILED to join the control plane"
+    exit 1
+  fi
+
+  if [ -f /etc/kubernetes/admin.conf ]; then
+    sudo sed -i "s|https://${control_plane_master_private_ip}:6443|https://${control_plane_endpoint}:6443|g" /etc/kubernetes/admin.conf
+    check_command "32" "FAILED to update kubeconfig endpoint"
+    log_step "32" "SUCCEEDED to patch kubeadm config with controlPlaneEndpoint ${control_plane_endpoint} and update kubeconfig"
+
+    export KUBE_USER=ubuntu
+    mkdir -p /home/$KUBE_USER/.kube
+    sudo cp -i /etc/kubernetes/admin.conf /home/$KUBE_USER/.kube/config
+    sudo chown $KUBE_USER:$KUBE_USER /home/$KUBE_USER/.kube/config
+    check_command "33" "FAILED to setup user kubeconfig"
+    log_step "33" "SUCCEEDED to update admin.conf to use the NLB DNS https://${control_plane_master_private_ip}:6443|https://${control_plane_endpoint}:6443"
+  else
+    log_error "33" "FAILED /etc/kubernetes/admin.conf not found after join"
+    exit 1
+  fi
+fi

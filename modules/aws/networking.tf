@@ -34,18 +34,6 @@ resource "aws_subnet" "private_subnets" {
   }
 }
 
-resource "aws_subnet" "public_subnets_alb" {
-  count                   = 2  # Create only two subnets
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_alb_cidrs[count.index]
-  availability_zone       = var.azs[terraform.workspace][count.index] # Ensures each subnet is in a different AZ
-  map_public_ip_on_launch = true  # Enables public access for instances
-
-  tags = {
-    Name = "${terraform.workspace} - Public Subnet ALB ${count.index + 1}"
-  }
-}
-
 # Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
@@ -104,7 +92,7 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   tags = {
-    Name = "${terraform.workspace} - Private Route Table"
+    Name = "${terraform.workspace} - Private RouteTable"
   }
 }
 

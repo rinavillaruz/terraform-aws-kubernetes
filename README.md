@@ -9,8 +9,9 @@ This repository contains Terraform configurations to deploy a **production-ready
 - **Control Plane and Worker Nodes**
 - **EC2 Instances**
 - **IAM Roles**
-- **Network Load Balancer and Application Load Balancer**
+- **Network Load Balancer**
 - **Terraform Modules** – Modular and reusable code structure using Workspaces
+- **AWS Parameter Store** - to store join commands
 
 ## 📌 Prerequisites
 - Terraform (`v1.10.5`)
@@ -39,44 +40,95 @@ This repository contains Terraform configurations to deploy a **production-ready
       # worker nodes (use admin for debian)
       ssh admin@[private-instance-ip]
    ```
+or you can execute environments/development/bastion-access.sh
+
+## AWS IAM User **terraform-user**
+- **AmazonEC2FullAccess** (attach this to the terraform-user User in IAM)
+
+## Policies
+- **Terraform-User-Attached** (attach this to the terraform-user User in IAM)
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "VisualEditor0",
+			"Effect": "Allow",
+			"Action": [
+				"iam:GetRole",
+				"iam:GetInstanceProfile",
+				"iam:GetPolicy",
+				"iam:ListAttachedUserPolicies",
+				"iam:GetUser",
+				"iam:CreatePolicy",
+				"iam:AttachUserPolicy",
+				"iam:AttachRolePolicy",
+				"iam:CreateRole",
+				"iam:PassRole",
+				"iam:ListInstanceProfiles",
+				"iam:ListRolePolicies",
+				"iam:ListAttachedRolePolicies",
+				"iam:CreateInstanceProfile",
+				"iam:AddRoleToInstanceProfile",
+				"iam:DeleteInstanceProfile",
+				"iam:UpdateAssumeRolePolicy",
+				"iam:PutRolePolicy",
+				"iam:DeleteRolePolicy",
+				"iam:GetRolePolicy",
+				"ssm:PutParameter",
+				"ssm:GetParameter",
+				"ssm:GetParameters",
+				"ssm:DeleteParameter",
+				"ssm:DescribeParameters",
+				"ssm:ListTagsForResource"
+			],
+			"Resource": [
+				"arn:aws:iam::<account-id>:policy/Terraform-User-Attached",
+				"arn:aws:iam::<account-id>:role/kubernetes-*",
+				"arn:aws:iam::<account-id>:instance-profile/kubernetes-*",
+				"arn:aws:iam::<account-id>:user/terraform*",
+				"arn:aws:ssm:us-east-1:<account-id>:parameter/k8s/*"
+			]
+		},
+		{
+			"Sid": "SSMDescribeAccess",
+			"Effect": "Allow",
+			"Action": "ssm:DescribeParameters",
+			"Resource": "*"
+		}
+	]
+}
+```
 
 ## 📝 Changelog
 - Associated an Elastic IP (EIP) to the bastion host instances.
 - Implemented aws_eip and aws_eip_association resources in Terraform.
+- Implemented AWS SSM Parameter Store to store join commands
+- Added .sh.tmpl template to automate control plane and worker node setup through EC2 user_data
 
-## Policies
+
+## To verify if the endpoint has changed,
+```sh
+kubectl cluster-info
 ```
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "VisualEditor0",
-            "Effect": "Allow",
-            "Action": [
-                "iam:GetRole",
-                "iam:GetInstanceProfile",
-                "iam:GetPolicy",
-                "iam:ListAttachedUserPolicies",
-                "iam:GetUser",
-                "iam:CreatePolicy",
-                "iam:AttachUserPolicy",
-                "iam:AttachRolePolicy",
-                "iam:CreateRole",
-                "iam:PassRole",
-                "iam:ListInstanceProfiles",
-                "iam:ListRolePolicies",
-                "iam:ListAttachedRolePolicies",
-                "iam:CreateInstanceProfile",
-                "iam:AddRoleToInstanceProfile",
-                "iam:DeleteInstanceProfile"
-            ],
-            "Resource": [
-                "arn:aws:iam::847153342117:policy/Terraform-User-Attached",
-                "arn:aws:iam::847153342117:role/kubernetes-*",
-                "arn:aws:iam::847153342117:instance-profile/kubernetes-*",
-                "arn:aws:iam::847153342117:user/terraform*"
-            ]
-        }
-    ]
-}
+
+You will see something like
+```sh
+Kubernetes control plane is running at https://xxx.elb.us-east-1.amazonaws.com:6443
+CoreDNS is running at https://xxx.elb.us-east-1.amazonaws.com:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
 ```
+
+To test if DNS is working (should test inside the VPC else it won't work)
+```sh
+curl -k https://xxx.elb.us-east-1.amazonaws.com:6443/version
+```
+or
+```sh
+time curl -k https://10.0.2.10:6443/version  # Control plane 1
+time curl -k https://10.0.3.10:6443/version  # Control plane 2
+time curl -k https://10.0.4.10:6443/version  # Control plane 3
+```
+
+## Notes
+- AWS user_data that is used for init-control-plane.sh.tmpl has a size limit of 16,384
+- Remove the echo join commands in init-control-plane.sh.tmpl and init-worker-node.sh when using in production or just delete the /var/log/k8s-install-success.txt found in all control planes

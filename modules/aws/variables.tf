@@ -48,3 +48,15 @@ variable "public_subnet_alb_cidrs" {
   description = "Public Subnet ALB CIDR values"
   default     = ["10.0.7.0/24", "10.0.8.0/24"]  # Two public subnets
 }
+
+variable "control_plane_private_ips" {
+  default = ["10.0.2.10", "10.0.3.10", "10.0.4.10"]
+  type        = list(string)
+  description = "List of private IPs for control plane nodes"
+}
+
+variable "kubeadm_join_command" {
+  type        = string
+  description = "Kubeadm join command for Kubernetes cluster setup"
+  default     = "NONE-SSM"
+}
