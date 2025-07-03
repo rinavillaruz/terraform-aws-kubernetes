@@ -113,8 +113,8 @@ or you can execute environments/development/bastion-access.sh
 **July 3, 2025**
 - Shared logging and error handling across all nodes.
 - Enhanced control plane initialization. It waits for Control Plane 1 to be ready before creating Control Planes 2 and 3 for smooth joining. 
-- Worker Node Readiness Check. Ensures all worker nodes join the cluster.
-- Automated Worker Node Labeling. Converts "<none>" role to "worker"
+- Worker node readiness check. Ensures all worker nodes join the cluster.
+- Automated worker node labeling. Converts "none" role to "worker"
 - Added comprehensive logging and it is being stored in /tmp/terraform-*-debug.log
 
 **June 28, 2025**
