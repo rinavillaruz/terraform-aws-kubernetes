@@ -1,0 +1,113 @@
+#!/bin/bash
+
+set -e
+
+${common_functions}
+
+log_step '1' 'Waiting for worker nodes to join the cluster...'
+export KUBECONFIG=/home/ubuntu/.kube/config
+log_step '2' 'Exporting KUBECONFIG'
+
+# Configuration from Terraform variables
+EXPECTED_WORKERS=${expected_workers}
+TIMEOUT_SECONDS=${timeout_seconds}
+CHECK_INTERVAL=${check_interval}
+
+LOG_FILE="${log_file}"
+check_command "3" "FAILED to create a log file path $LOG_FILE"
+log_step '3' "SUCCEEDED to create a log file path $LOG_FILE"
+
+sudo touch "$LOG_FILE"
+check_command "4" "FAILED to create a log file in $LOG_FILE"
+log_step '4' "SUCCEEDED to create a log file in $LOG_FILE"
+
+sudo chmod 666 "$LOG_FILE"
+check_command "5" "FAILED to chmod to 666 the $LOG_FILE"
+log_step '5' "SUCCEEDED to chmod to 666 the $LOG_FILE"
+
+log_step '6' "Starting worker node wait process..."
+log_step '6' "Expected workers: $EXPECTED_WORKERS"
+log_step '6' "Timeout: $TIMEOUT_SECONDS seconds"
+log_step '6' "Check interval: $CHECK_INTERVAL seconds"
+
+# Function to count current worker nodes
+count_worker_nodes() {
+    kubectl get nodes --no-headers 2>/dev/null | \
+        grep -v control-plane | \
+        grep -v master | \
+        wc -l || echo 0
+}
+
+# Function to count ready worker nodes
+count_ready_worker_nodes() {
+    kubectl get nodes --no-headers 2>/dev/null | \
+        grep -v control-plane | \
+        grep -v master | \
+        grep Ready | \
+        wc -l || echo 0
+    check_command '-' '->Counting ready worker nodes'
+}
+
+# Main wait loop with timeout
+start_time=$(date +%s)
+end_time=$((start_time + TIMEOUT_SECONDS))
+
+log_step '7' "Wait started at: $(date)"
+log_step '7' "Start time at: $(start_time)"
+log_step '7' "End time at: $(end_time)"
+
+while true; do
+    current_time=$(date +%s)
+    
+    # Check timeout
+    if [ $current_time -gt $end_time ]; then
+        log_error '8' "TIMEOUT: Worker nodes did not join within $TIMEOUT_SECONDS seconds"
+        log_step '9' "Current cluster state:"
+        kubectl get nodes --no-headers 2>&1 | tee -a "$LOG_FILE" || echo "kubectl failed"
+        exit 1
+    fi
+    
+    # Count worker nodes
+    current_workers=$(count_worker_nodes)
+    ready_workers=$(count_ready_worker_nodes)
+    log_step '10' "Current workers at: $(current_workers)"
+    log_step '10' "Ready workers at: $(ready_workers)"
+    
+    elapsed=$((current_time - start_time))
+    remaining=$((end_time - current_time))
+    log_step '10' "Elapsed time: $elapsed s"
+    log_step '10' "Remaining time: $remaining s"
+    
+    log_step '11' "Status check at $(date)"
+    log_step '11' "->Current worker nodes: $current_workers"
+    log_step '11' "->Ready worker nodes: $ready_workers"
+    log_step '11' "->Expected: $EXPECTED_WORKERS"
+    log_step '11' "->Elapsed: $elapsed s, Remaining: $remaining s"
+    
+    # Check if we have enough worker nodes joined
+    if [ "$current_workers" -ge "$EXPECTED_WORKERS" ]; then
+        log_step '12' "SUCCEEDED: All $EXPECTED_WORKERS worker nodes have joined the cluster!"
+        
+        # Wait for them to be ready
+        if [ "$ready_workers" -ge "$EXPECTED_WORKERS" ]; then
+            log_step '13' "SUCCEEDED: All worker nodes are also ready!"
+            break
+        else
+            log_step '13' "WAITING Worker nodes joined but not all are ready yet. Waiting for readiness..."
+        fi
+    fi
+    
+    # Show current cluster state
+    log_step '14' "Current cluster state:"
+    kubectl get nodes --no-headers 2>&1 | tee -a "$LOG_FILE" || log_step "14" "kubectl command failed"
+    
+    log_step '15' "Waiting $CHECK_INTERVAL seconds before next check..."
+    sleep $CHECK_INTERVAL
+done
+
+# Final status
+log_step '16' "Final cluster state:"
+kubectl get nodes -o wide 2>&1 | tee -a "$LOG_FILE"
+
+log_step '17' "Worker nodes join process completed successfully!"
+log_step '18' "Log saved to: $LOG_FILE"

@@ -1,0 +1,194 @@
+#!/bin/bash
+set -e
+
+${common_functions}
+
+# Disable swap
+swapoff -a
+check_command "1" "FAILED to disable swap"
+log_step "1" "SUCCEEDED to disable swap"
+
+sed -i '/ swap / s/^/#/' /etc/fstab
+
+check_command "2" "FAILED to comment swap in fstab"
+log_step "2" "SUCCEEDED to comment swap in fstab"
+
+# Enables packet forwarding
+cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.ipv4.ip_forward = 1
+EOF
+check_command "3" "FAILED packet forwarding"
+log_step "3" "SUCCEEDED packet forwarding"
+
+# Apply sysctl params without reboot
+sysctl --system
+check_command "4" "FAILED to apply sysctl settings"
+log_step "4" "SUCCEEDED to apply sysctl params without reboot"
+
+for attempt in 1 2 3; do
+    if apt-get update; then
+        log_step "5" "SUCCEEDED to update"
+        break
+    else
+        log_error "5" "FAILED apt-get update failed (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+apt-get install -y ca-certificates curl gnupg lsb-release containerd apt-transport-https unzip
+check_command "6" "FAILED to install required packages"
+log_step "6" "SUCCEEDED Installed packages: ca-certificates curl gnupg lsb-release containerd apt-transport-https unzip"
+
+# Create keyring directory if it doesn't exist
+mkdir -p /etc/apt/keyrings
+check_command "7" "FAILED to create keyrings directory"
+log_step  "7" "SUCCEEDED to create keyring directory if it doesn't exist"
+
+# Download and save the Docker GPG key in dearmored format
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+ sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+check_command "8" "FAILED to download and save the Docker GPG key in dearmored format"
+log_step  "8" "SUCCEEDED to download and save the Docker GPG key in dearmored format"
+
+# Make the key readable
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+check_command "9" "FAILED to make the key readable"
+log_step  "9" "SUCCEEDED to make the key readable"
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+check_command "10" "FAILED to add Docker repository"
+log_step "10" "SUCCEEDED to add Docker repository"
+
+for attempt in 1 2 3; do
+    if apt-get update; then
+        break
+    else
+        log_error "11" "FAILED apt-get update failed (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+log_step "11" SUCCEEDED to install containerd""
+
+mkdir -p /etc/containerd
+check_command "12" "FAILED to create containerd directory"
+log_step "12" "SUCCEEDED to create containerd directory"
+
+containerd config default | tee /etc/containerd/config.toml
+check_command "13" "FAILED to generate containerd config"
+log_step "13" "SUCCEEDED to generate containerd config"
+
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+check_command "14" "FAILED to update containerd config"
+log_step "14" "SUCCEEDED to update containerd config"
+
+systemctl restart containerd
+check_command "15" "FAILED to restart containerd"
+log_step "15" "SUCCEEDED to restart containerd"
+
+systemctl enable containerd
+check_command "16" "FAILED to enable containerd"
+log_step "16" "SUCCEEDED to enable containerd"
+
+for attempt in 1 2 3; do
+    if curl --connect-timeout 30 --max-time 60 -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg; then
+        break
+    else
+        log_error "17" "FAILED to download Kubernetes GPG key (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+# This overwrites any existing configuration in /etc/apt/sources.list.d/kubernetes.list
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+check_command "18" "FAILED to add Kubernetes repository"
+log_step "18" "SUCCEEDED to add Kubernetes repository"
+
+apt-get update
+check_command "19" "FAILED to update package list"
+log_step "19" "SUCCEEDED to update package list"
+
+apt-get install -y kubelet kubeadm
+check_command "20" "FAILED to install Kubernetes components"
+log_step "20" "SUCCEEDED to install Kubernetes components"
+
+apt-mark hold kubelet kubeadm
+check_command "21" "FAILED to hold Kubernetes packages"
+log_step "21" "SUCCEEDED to hold Kubernetes packages"
+
+systemctl enable --now kubelet
+check_command "22" "FAILED to enable kubelet"
+log_step "22" "SUCCEEDED to enable kubelet"
+
+for attempt in 1 2 3; do
+    if curl --connect-timeout 30 --max-time 300 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; then
+        log_step "23" "SUCCEEDED to curl aws.zip"
+        break
+    else
+        log_error "23" "FAILED to download AWS CLI (attempt $attempt/3)"
+        if [ $attempt -eq 3 ]; then
+            exit 1
+        fi
+        sleep 10
+    fi
+done
+
+unzip awscliv2.zip
+check_command "24" "FAILED to unzip AWS CLI"
+log_step "24" "SUCCEEDED to unzip AWS CLI"
+
+sudo ./aws/install
+check_command "25" "FAILED to install AWS CLI"
+log_step "25" "SUCCEEDED to install AWS CLI"
+
+if ! aws --version; then
+    log_error "26" "FAILED AWS CLI installation verification"
+    exit 1
+fi
+log_step "26" "aws --version"
+
+# Needs to wait for 2 mins for the current join command in ssm to show
+sleep 120
+log_step "27" "Waited 2 minutes before retrieving join command"
+
+for attempt in 1 2 3; do
+  JOIN_CMD=$(aws ssm get-parameter \
+        --region us-east-1 \
+        --name "/k8s/worker-node/join-command" \
+        --with-decryption \
+        --query "Parameter.Value" \
+        --output text \
+        --no-cli-pager \
+        --cli-read-timeout 30 \
+        --cli-connect-timeout 10 2>/dev/null)
+  
+  if [ $? -eq 0 ] && [ -n "$JOIN_CMD" ] && [[ "$JOIN_CMD" != *"error"* ]] && [[ "$JOIN_CMD" != "None" ]]; then
+    log_step "28" "SUCCEEDED to retrieve the command $JOIN_CMD"
+    break
+  else
+    log_error "28" "FAILED to retrieve join command from SSM (attempt $attempt/3)"
+    if [ $attempt -eq 3 ]; then
+      log_error "29" "FAILED to retrieve the command after 3 attempts"
+      exit 1
+    fi
+    sleep 20
+  fi
+done
+
+if eval "sudo $JOIN_CMD"; then
+  log_step "30" "SUCCEEDED to join the control plane"
+else
+  log_error "30" "FAILED to join the control plane"
+  exit 1
+fi

@@ -49,58 +49,75 @@ or you can execute environments/development/bastion-access.sh
 - **Terraform-User-Attached** (attach this to the terraform-user User in IAM)
 ```
 {
-	"Version": "2012-10-17",
-	"Statement": [
-		{
-			"Sid": "VisualEditor0",
-			"Effect": "Allow",
-			"Action": [
-				"iam:GetRole",
-				"iam:GetInstanceProfile",
-				"iam:GetPolicy",
-				"iam:ListAttachedUserPolicies",
-				"iam:GetUser",
-				"iam:CreatePolicy",
-				"iam:AttachUserPolicy",
-				"iam:AttachRolePolicy",
-				"iam:CreateRole",
-				"iam:PassRole",
-				"iam:ListInstanceProfiles",
-				"iam:ListRolePolicies",
-				"iam:ListAttachedRolePolicies",
-				"iam:CreateInstanceProfile",
-				"iam:AddRoleToInstanceProfile",
-				"iam:DeleteInstanceProfile",
-				"iam:UpdateAssumeRolePolicy",
-				"iam:PutRolePolicy",
-				"iam:DeleteRolePolicy",
-				"iam:GetRolePolicy",
-				"ssm:PutParameter",
-				"ssm:GetParameter",
-				"ssm:GetParameters",
-				"ssm:DeleteParameter",
-				"ssm:DescribeParameters",
-				"ssm:ListTagsForResource"
-			],
-			"Resource": [
-				"arn:aws:iam::<account-id>:policy/Terraform-User-Attached",
-				"arn:aws:iam::<account-id>:role/kubernetes-*",
-				"arn:aws:iam::<account-id>:instance-profile/kubernetes-*",
-				"arn:aws:iam::<account-id>:user/terraform*",
-				"arn:aws:ssm:us-east-1:<account-id>:parameter/k8s/*"
-			]
-		},
-		{
-			"Sid": "SSMDescribeAccess",
-			"Effect": "Allow",
-			"Action": "ssm:DescribeParameters",
-			"Resource": "*"
-		}
-	]
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetRole",
+                "iam:GetInstanceProfile",
+                "iam:GetPolicy",
+                "iam:ListAttachedUserPolicies",
+                "iam:GetUser",
+                "iam:CreatePolicy",
+                "iam:AttachUserPolicy",
+                "iam:AttachRolePolicy",
+                "iam:CreateRole",
+                "iam:PassRole",
+                "iam:ListInstanceProfiles",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:CreateInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:DeleteInstanceProfile",
+                "iam:UpdateAssumeRolePolicy",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:GetRolePolicy",
+                "ssm:PutParameter",
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:DeleteParameter",
+                "ssm:DescribeParameters",
+                "ssm:ListTagsForResource",
+                "iam:RemoveRoleFromInstanceProfile",
+                "iam:ListGroupsForUser",
+                "iam:RemoveUserFromGroup",
+                "iam:DeleteInstanceProfile",
+                "iam:DeleteRole",
+                "iam:DetachRolePolicy",
+                "iam:DetachUserPolicy",
+                "iam:ListInstanceProfilesForRole",
+                "iam:DeleteUser"
+            ],
+            "Resource": [
+                "arn:aws:iam::847153342117:policy/Terraform-User-Attached",
+                "arn:aws:iam::847153342117:role/kubernetes-*",
+                "arn:aws:iam::847153342117:instance-profile/kubernetes-*",
+                "arn:aws:iam::847153342117:user/terraform*",
+                "arn:aws:ssm:us-east-1:847153342117:parameter/k8s/*"
+            ]
+        },
+        {
+            "Sid": "SSMDescribeAccess",
+            "Effect": "Allow",
+            "Action": "ssm:DescribeParameters",
+            "Resource": "*"
+        }
+    ]
 }
 ```
 
 ## 📝 Changelog
+**July 3, 2025**
+- Shared logging and error handling across all nodes.
+- Enhanced control plane initialization. It waits for Control Plane 1 to be ready before creating Control Planes 2 and 3 for smooth joining. 
+- Worker Node Readiness Check. Ensures all worker nodes join the cluster.
+- Automated Worker Node Labeling. Converts "<none>" role to "worker"
+- Added comprehensive logging and it is being stored in /tmp/terraform-*-debug.log
+
+**June 28, 2025**
 - Associated an Elastic IP (EIP) to the bastion host instances.
 - Implemented aws_eip and aws_eip_association resources in Terraform.
 - Implemented AWS SSM Parameter Store to store join commands

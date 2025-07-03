@@ -1,28 +1,7 @@
 #!/bin/bash
 set -e
 
-# Enhanced logging function
-log_step() {
-    local step="$1"
-    local message="$2"
-    echo "[$step] $message" | sudo tee -a /var/log/k8s-install-success.txt > /dev/null
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [$step] $message"
-}
-
-log_error() {
-    local step="$1"
-    local message="$2"
-    echo "ERROR [$step] $message" | sudo tee -a /var/log/k8s-install-error.txt > /dev/null
-    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR [$step] $message" >&2
-}
-
-# Function to check if command succeeded
-check_command() {
-    if [ $? -ne 0 ]; then
-        log_error "$1" "$2"
-        exit 1
-    fi
-}
+${common_functions}
 
 wait_for_variables() {
     max_attempts=30
@@ -243,17 +222,9 @@ fi
   # To start using your cluster, you need to run the following as ubuntu user
   export KUBE_USER=ubuntu
   mkdir -p /home/$KUBE_USER/.kube
-  check_command "30" "FAILED to create .kube directory"
-  log_step "30" "SUCCEEDED to create .kube directory"
-
   sudo cp -i /etc/kubernetes/admin.conf /home/$KUBE_USER/.kube/config
-  check_command "31" "FAILED to copy kubeconfig"
-  log_step "31" "SUCCEEDED to copy kubeconfig"
-
   sudo chown $KUBE_USER:$KUBE_USER /home/$KUBE_USER/.kube/config
-  check_command "32" "FAILED to set kubeconfig ownership"
-  log_step "32" "SUCCEEDED to set kubeconfig ownership"
-
+  
   log_step "33" "Waiting for control plane to respond to kubectl..."
 
   control_plane_ready=false
@@ -292,12 +263,8 @@ fi
   fi
 
   sudo mv /etc/kubernetes/pki/apiserver.crt /etc/kubernetes/pki/apiserver.crt.bak
-  check_command "36" "FAILED to backup apiserver.crt"
-  log_step "36" "SUCCEEDED to backup apiserver.crt"
-
   sudo mv /etc/kubernetes/pki/apiserver.key /etc/kubernetes/pki/apiserver.key.bak
-  check_command "37" "FAILED to backup apiserver.key"
-  log_step "37" "SUCCEEDED to backup apiserver.key"
+  log_step "36" "SUCCEEDED to backup apiserver.crt"
 
   # Create the config with NLB DNS as SAN:
 cat <<EOF | sudo tee /root/kubeadm-dns.yaml

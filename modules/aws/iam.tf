@@ -1,14 +1,9 @@
 # IAM
-resource "aws_iam_user" "terraform_user" {
-  name = "terraform-user"
-}
-
-resource "aws_iam_instance_profile" "kubernetes_master" {
-  name = "kubernetes-master-profile"
-  role = aws_iam_role.kubernetes_master.name
-}
-
 data "aws_caller_identity" "current" {}
+
+resource "random_id" "cluster" {
+  byte_length = 4
+}
 
 resource "aws_iam_role" "kubernetes_master" {
   name = "kubernetes-master-role"
@@ -25,6 +20,11 @@ resource "aws_iam_role" "kubernetes_master" {
       }
     ]
   })
+}
+
+resource "aws_iam_instance_profile" "kubernetes_master" {
+  name = "kubernetes-master-profile-${random_id.cluster.hex}" 
+  role = aws_iam_role.kubernetes_master.name
 }
 
 # Add SSM permissions to master role
@@ -49,13 +49,8 @@ resource "aws_iam_role_policy" "kubernetes_master_ssm" {
   })
 }
 
-resource "aws_iam_instance_profile" "kubernetes_worker" {
-  name = "kubernetes-worker-profile"
-  role = aws_iam_role.kubernetes_worker.name
-}
-
 resource "aws_iam_role" "kubernetes_worker" {
-  name = "kubernetes-worker-role"
+  name = "kubernetes-worker-profile-${random_id.cluster.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -69,6 +64,11 @@ resource "aws_iam_role" "kubernetes_worker" {
       }
     ]
   })
+}
+
+resource "aws_iam_instance_profile" "kubernetes_worker" {
+  name = "kubernetes-worker-profile"
+  role = aws_iam_role.kubernetes_worker.name
 }
 
 resource "aws_iam_role_policy" "kubernetes_worker_ssm" {

@@ -21,10 +21,18 @@ resource "aws_lb_target_group" "k8s_api" {
   }
 }
 
-resource "aws_lb_target_group_attachment" "k8s_api" {
-  count            = 3
+# Master node attachment
+resource "aws_lb_target_group_attachment" "k8s_api_master" {
   target_group_arn = aws_lb_target_group.k8s_api.arn
-  target_id        = aws_instance.control_plane[count.index].id
+  target_id        = aws_instance.control_plane["0"].id
+  port             = 6443
+}
+
+# Secondary nodes attachment
+resource "aws_lb_target_group_attachment" "k8s_api_secondary" {
+  for_each         = aws_instance.control_plane_secondary
+  target_group_arn = aws_lb_target_group.k8s_api.arn
+  target_id        = each.value.id
   port             = 6443
 }
 

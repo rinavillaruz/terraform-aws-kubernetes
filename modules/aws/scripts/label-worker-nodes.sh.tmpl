@@ -1,0 +1,127 @@
+#!/bin/bash
+
+set -e
+
+${common_functions}
+
+log_step '1' 'Starting worker node labeling process...'
+export KUBECONFIG=/home/ubuntu/.kube/config
+log_step '2' 'Exporting KUBECONFIG'
+
+EXPECTED_WORKERS=${expected_worker_count}
+log_step '2' "Expected workers: $EXPECTED_WORKERS"
+
+LOG_FILE="/var/log/k8s-worker-labeling-$(date +%Y%m%d-%H%M%S).log"
+check_command "3" "FAILED to create a log file path $LOG_FILE"
+log_step '3' "SUCCEEDED to create a log file path $LOG_FILE"
+
+sudo touch $LOG_FILE
+check_command "4" "FAILED to create a log file in $LOG_FILE"
+log_step '4' "SUCCEEDED to create a log file in $LOG_FILE"
+
+sudo chmod 666 $LOG_FILE
+check_command "5" "FAILED to chmod to 666 the $LOG_FILE"
+log_step '5' "SUCCEEDED to chmod to 666 the $LOG_FILE"
+
+log_step '6' 'Current cluster state before labeling:'
+
+kubectl get nodes -o wide 2>&1 | tee -a $LOG_FILE || { 
+    log_error '7' 'FAILED to get nodes'
+    exit 1
+}
+log_error '7' 'SUCCEEDED to get nodes'
+
+log_step '8' 'Labeling worker nodes...'
+
+# Wait to ensure all nodes are fully ready
+log_step '9' 'Waiting 30 seconds for nodes to stabilize...'
+sleep 30
+
+# Get all node names
+node_list=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+check_command '10' "FAILED All nodes found: $node_list"
+log_step '10' "SUCCEEDED All nodes found: $node_list"
+
+# Function to label a node with retry logic
+label_node_with_retry() {
+    local node="$1"
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        log_step '11' "Attempt $attempt/$max_attempts to label node: $node"
+        
+        # Wait for node to be ready
+        if kubectl wait --for=condition=Ready node/$node --timeout=60s 2>&1 | tee -a $LOG_FILE; then
+            log_step '12' "$node is ready, attempting to label..."
+            
+            if kubectl label node "$node" node-role.kubernetes.io/worker=worker --overwrite 2>&1 | tee -a $LOG_FILE; then
+                log_step '13' "SUCCEEDED to label $node as worker"
+                return 0
+            else
+                log_step '13' "FAILED to label $node (attempt $attempt)"
+            fi
+        else
+            log_step '12' "$node not ready yet (attempt $attempt)"
+        fi
+        
+        attempt=$((attempt + 1))
+        if [ $attempt -le $max_attempts ]; then
+            log_step '14' "WAITING 10 seconds before retry..."
+            sleep 10
+        fi
+    done
+    
+    log_step '15' "FAILED to label $node after $max_attempts attempts"
+    return 1
+}
+
+# Process each node
+for node in $node_list; do
+    if [ -n "$node" ]; then
+        log_step '16' "Processing node: $node"
+        
+        # Check if node has control-plane or master role
+        node_labels=$(kubectl get node "$node" -o jsonpath='{.metadata.labels}' 2>/dev/null || echo '')
+        
+        if echo "$node_labels" | grep -E 'control-plane|master' > /dev/null 2>&1; then
+            log_step '17' "$node is a control plane node, skipping"
+        else
+            log_step '17' "$node appears to be a worker node"
+            label_node_with_retry "$node"
+        fi
+    fi
+done
+
+log_step '18' 'First labeling pass completed'
+
+# Second pass: check for any remaining unlabeled worker nodes
+log_step '19' 'Checking for any remaining unlabeled nodes...'
+unlabeled_nodes=$(kubectl get nodes --no-headers | grep '<none>' | awk '{print $1}' || true)
+
+if [ -n "$unlabeled_nodes" ]; then
+    log_step '20' "SUCCEEDED Found unlabeled nodes: $unlabeled_nodes"
+    for node in $unlabeled_nodes; do
+        log_step '21' "Final attempt to label remaining node: $node"
+        label_node_with_retry "$node"
+    done
+else
+    log_step '20' 'FAILED No unlabeled nodes found'
+fi
+
+log_step '21' 'Labeling process completed'
+log_step '22' 'Final cluster state:'
+kubectl get nodes -o wide 2>&1 | tee -a $LOG_FILE
+
+# Final verification
+remaining_unlabeled=$(kubectl get nodes --no-headers | grep '<none>' | wc -l || echo '0')
+if [ "$remaining_unlabeled" -gt 0 ]; then
+    log_step '23'  "WARNING: $remaining_unlabeled node(s) still have no role assigned"
+    kubectl get nodes --no-headers | grep '<none>' 2>&1 | tee -a $LOG_FILE
+    exit 1
+else
+    log_step '23' 'SUCCEEDED: All nodes have roles assigned'
+fi
+
+log_step '24' "Worker labeling process completed. Full log saved to: $LOG_FILE"
+log_step '25' "To view the log later, run: sudo cat $LOG_FILE"

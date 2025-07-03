@@ -1,0 +1,148 @@
+#!/bin/bash
+# Wait for Kubernetes master control plane to be ready
+
+set -e
+
+# Embed common functions
+${common_functions}
+
+# Initialize logging
+LOG_FILE=/tmp/terraform-wait-master-debug.log
+log_step "INIT" "Starting wait for master control plane script"
+log_file '=== TERRAFORM WAIT FOR MASTER DEBUG START ===' "$LOG_FILE"
+log_file "Script started at: $(date)" "$LOG_FILE"
+log_file "Current user: $(whoami)" "$LOG_FILE"
+log_file "Current directory: $(pwd)" "$LOG_FILE"
+log_file "Environment variables:" "$LOG_FILE"
+env | grep -E '^(PATH|HOME|USER)=' | tee -a $LOG_FILE
+log_file "System info:" "$LOG_FILE"
+uname -a | tee -a $LOG_FILE
+log_file "Available memory:" "$LOG_FILE"
+free -h | tee -a $LOG_FILE
+log_file "Disk space:" "$LOG_FILE"
+df -h | tee -a $LOG_FILE
+log_file '=========================' "$LOG_FILE"
+
+log_step "1" "Waiting for cloud-init to complete"
+log_file "Cloud-init wait started at: $(date)" "$LOG_FILE"
+
+# Wait for cloud-init to finish (up to 20 minutes)
+timeout 1200 bash -c '
+  while true; do
+    status=$(sudo cloud-init status 2>/dev/null || echo "unknown")
+    echo "$(date): Cloud-init status: $status" | tee -a '$LOG_FILE'
+    if [[ "$status" == *"done"* ]]; then
+      echo "$(date): Cloud-init completed successfully" | tee -a '$LOG_FILE'
+      break
+    elif [[ "$status" == *"error"* ]]; then
+      echo "$(date): Cloud-init failed!" | tee -a '$LOG_FILE'
+      sudo cloud-init status --long 2>&1 | tee -a '$LOG_FILE'
+      exit 1
+    else
+      echo "$(date): Waiting for cloud-init to complete..." | tee -a '$LOG_FILE'
+      sleep 30
+    fi
+  done
+'
+check_command "1" "Cloud-init timeout after 20 minutes"
+
+log_step "1" "Cloud-init completed successfully"
+
+# Verify installation completed
+log_step "2" "Checking if Kubernetes installation completed"
+if [ -f /var/log/k8s-install-success.txt ]; then
+  log_step "2" "Installation success log found"
+  log_file 'Last 10 lines of success log:' "$LOG_FILE"
+  tail -10 /var/log/k8s-install-success.txt | tee -a $LOG_FILE
+else
+  log_error "2" "No success log found, checking for errors"
+  if [ -f /var/log/k8s-install-error.txt ]; then
+    log_error "2" "Error log found - installation failed"
+    cat /var/log/k8s-install-error.txt | tee -a $LOG_FILE
+    exit 1
+  else
+    log_error "2" "No error log either, checking cloud-init output"
+    log_file 'Cloud-init output (last 50 lines):' "$LOG_FILE"
+    sudo tail -50 /var/log/cloud-init-output.log | tee -a $LOG_FILE
+    exit 1
+  fi
+fi
+
+# Check filesystem after installation
+log_step "3" "Checking filesystem after installation"
+ls -la /home/ubuntu/ | tee -a $LOG_FILE
+ls -la /home/ubuntu/.kube/ 2>&1 | tee -a $LOG_FILE || echo 'No .kube directory yet' | tee -a $LOG_FILE
+ls -la /etc/kubernetes/ 2>&1 | tee -a $LOG_FILE || echo 'No /etc/kubernetes directory yet' | tee -a $LOG_FILE
+
+# Check for kubeconfig
+log_step "4" "Checking for kubeconfig"
+if [ -f /home/ubuntu/.kube/config ]; then
+  export KUBECONFIG=/home/ubuntu/.kube/config
+  log_step "4" "Found user kubeconfig"
+elif [ -f /etc/kubernetes/admin.conf ]; then
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+  log_step "4" "Found admin kubeconfig"
+else
+  log_error "4" "No kubeconfig found after installation"
+  log_file 'Contents of /etc/kubernetes/:' "$LOG_FILE"
+  ls -la /etc/kubernetes/ 2>&1 | tee -a $LOG_FILE || echo 'No /etc/kubernetes directory' | tee -a $LOG_FILE
+  log_file 'Showing complete debug log before exit:' "$LOG_FILE"
+  cat $LOG_FILE
+  exit 1
+fi
+
+# Test kubectl
+log_step "5" "Testing kubectl"
+kubectl version --client 2>&1 | tee -a $LOG_FILE
+check_command "5" "kubectl version check failed"
+
+if kubectl version --client >/dev/null 2>&1; then
+  log_step "5" "kubectl is working"
+else
+  log_error "5" "kubectl not working"
+  which kubectl 2>&1 | tee -a $LOG_FILE || log_file 'kubectl not in PATH' "$LOG_FILE"
+  log_file 'PATH contents:' "$LOG_FILE"
+  echo $PATH | tee -a $LOG_FILE
+  exit 1
+fi
+
+# Test API server
+log_step "6" "Testing API server"
+API_ATTEMPTS=0
+timeout 300 bash -c '
+  while ! kubectl get --raw /healthz >/dev/null 2>&1; do
+    API_ATTEMPTS=$((API_ATTEMPTS + 1))
+    echo "$(date): API server not ready, attempt $API_ATTEMPTS - waiting..." | tee -a '$LOG_FILE'
+    sleep 10
+  done
+'
+check_command "6" "API server not responding after 5 minutes"
+
+log_step "6" "API server is responding"
+
+# Check system services
+log_step "7" "Checking system services"
+systemctl status kubelet --no-pager 2>&1 | head -10 | tee -a $LOG_FILE
+systemctl status containerd --no-pager 2>&1 | head -10 | tee -a $LOG_FILE
+
+# Final verification
+log_step "8" "Final cluster verification"
+kubectl get nodes 2>&1 | tee -a $LOG_FILE
+check_command "8" "Failed to get cluster nodes"
+
+log_file 'System pods status:' "$LOG_FILE"
+kubectl get pods -n kube-system --no-headers > /tmp/pods_output 2>&1
+check_command "8" "Failed to get system pods"
+head -10 /tmp/pods_output | tee -a $LOG_FILE
+
+# Success
+log_step "COMPLETE" "Control plane is ready"
+log_file "Wait script completed successfully" "$LOG_FILE"
+log_file '=== TERRAFORM WAIT FOR MASTER DEBUG END ===' "$LOG_FILE"
+
+# Show complete log at the end
+log_file '=== COMPLETE DEBUG LOG ===' "$LOG_FILE"
+cat $LOG_FILE
+log_file '=== END DEBUG LOG ===' "$LOG_FILE"
+
+log_step "COMPLETE" "Wait for master script finished successfully"
