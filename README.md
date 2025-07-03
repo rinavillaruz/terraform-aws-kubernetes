@@ -149,3 +149,8 @@ time curl -k https://10.0.4.10:6443/version  # Control plane 3
 ## Notes
 - AWS user_data that is used for init-control-plane.sh.tmpl has a size limit of 16,384
 - Remove the echo join commands in init-control-plane.sh.tmpl and init-worker-node.sh when using in production or just delete the /var/log/k8s-install-success.txt found in all control planes
+
+## Sample Output
+<img width="556" alt="Image" src="https://github.com/user-attachments/assets/2e7e5f8b-0bd9-46e4-8ae9-2377f4052079" />
+
+<img width="889" alt="Image" src="https://github.com/user-attachments/assets/b226fa2b-9c1d-40fb-a568-c56eb4f3a664" />
