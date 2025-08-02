@@ -2,53 +2,80 @@ provider "aws" {
   region = lookup(var.aws_region, terraform.workspace)
 }
 
-# VPC
 resource "aws_vpc" "main" {
-    cidr_block = "10.0.0.0/16"
-
-    tags = {
-        Name = "${terraform.workspace} Kubernetes VPC"
-    }
+  cidr_block            = "10.0.0.0/16"
+  enable_dns_hostnames  = true
+  enable_dns_support    = true
+  
+  tags = {
+    Name                = "${terraform.workspace} - Kubernetes Cluster VPC"
+    Environment         = terraform.workspace
+    Purpose             = "Kubernetes Infrastructure"
+  }
 }
 
-# Only one public subnet for Bastion host
 resource "aws_subnet" "public_subnets" {
-  count             = length(var.public_subnet_cidrs)
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = element(var.public_subnet_cidrs, count.index)
-  availability_zone = element(var.azs[terraform.workspace], count.index)
+  count               = length(var.public_subnet_cidrs)
+  vpc_id              = aws_vpc.main.id
+  cidr_block          = element(var.public_subnet_cidrs, count.index)
+  availability_zone   = element(var.azs[terraform.workspace], count.index)
 
   tags = {
-    Name = "${terraform.workspace} - Public Subnet ${count.index + 1}"
+    Name              = "${terraform.workspace} - Public Subnet ${count.index + 1}"
+    Description       = "Public subnet for bastion host and load balancers"
+    Type              = "Public"
+    Environment       = terraform.workspace
+    AvailabilityZone  = element(var.azs[terraform.workspace], count.index)
+    Purpose           = "DMZ"
+    ManagedBy         = "Terraform"
+    Project           = "Kubernetes"
+    Tier              = "DMZ"  # Demilitarized Zone
   }
 }
 
 resource "aws_subnet" "private_subnets" {
-  count             = min(length(var.private_subnet_cidrs), length(var.azs[terraform.workspace]))
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidrs[count.index]
-  availability_zone = var.azs[terraform.workspace][count.index] # Ensures 1 AZ per subnet
+  count               = min(length(var.private_subnet_cidrs), length(var.azs[terraform.workspace]))
+  vpc_id              = aws_vpc.main.id
+  cidr_block          = var.private_subnet_cidrs[count.index]
+  availability_zone   = var.azs[terraform.workspace][count.index] # Ensures 1 AZ per subnet
 
   tags = {
-    Name = "${terraform.workspace} - Private Subnet ${count.index + 1}"
+    Name              = "${terraform.workspace} - Private Subnet ${count.index + 1}"
+    Description       = "Private subnet for Kubernetes worker and control plane nodes"
+    Type              = "Private"
+    Environment       = terraform.workspace
+    AvailabilityZone  = var.azs[terraform.workspace][count.index]
+    Purpose           = "Kubernetes Nodes"
+    ManagedBy         = "Terraform"
+    Project           = "Kubernetes"
+    Tier              = "Internal"
   }
 }
 
-# Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 
   tags = {
-    Name = "${terraform.workspace} - Internet Gateway"
+    Name        = "${terraform.workspace} - Internet Gateway"
+    Purpose     = "Internet access for public subnets"
+    Description = "Provides internet connectivity for bastion host and load balancers"
+    Type        = "Gateway"
   }
 }
 
-# Create a route table for public subnets
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-
+  
   tags = {
-    Name = "${terraform.workspace} - Public Route Table"
+    Name        = "${terraform.workspace} - Public Route Table"
+    Description = "Route table for public subnets - directs traffic to internet gateway"
+    Type        = "Public"
+    Purpose     = "Internet routing for DMZ resources"
+    Environment = terraform.workspace
+    ManagedBy   = "Terraform"
+    Tier        = "DMZ"
+    RouteType   = "Internet-bound"
+    Project     = "Kubernetes"
   }
 }
 
@@ -65,34 +92,43 @@ resource "aws_route_table_association" "public_first_subnet" {
   route_table_id = aws_route_table.public.id
 }
 
-# NAT Gateway
-# Elastic IP fot NAT
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
 
   tags = {
-    Name = "${terraform.workspace} - NAT EIP"
+    Name        = "${terraform.workspace} - NAT Gateway EIP"
+    Description = "Elastic IP for NAT Gateway - enables internet access for private subnets"
+    Purpose     = "NAT Gateway"
+    Environment = terraform.workspace
+    ManagedBy   = "Terraform"
   }
 }
 
-# Create the NAT Gateway in the first public subnet
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat_eip.id
   subnet_id     = aws_subnet.public_subnets[0].id
 
   tags = {
-    Name = "${terraform.workspace} - NAT Gateway"
+    Name        = "${terraform.workspace} - NAT Gateway"
+    Description = "NAT Gateway for private subnet internet access - enables Kubernetes nodes to reach external services"
+    Purpose     = "Private Subnet Internet Access"
+    Environment = terraform.workspace
+    ManagedBy   = "Terraform"
   }
 
   depends_on = [aws_internet_gateway.igw]
 }
 
-# Route table for private subnets
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   tags = {
-    Name = "${terraform.workspace} - Private RouteTable"
+    Name        = "${terraform.workspace} - Private Route Table"
+    Description = "Route table for private subnets - directs internet traffic through NAT Gateway"
+    Type        = "Private"
+    Environment = terraform.workspace
+    Purpose     = "NAT Gateway Routing"
+    ManagedBy   = "Terraform"
   }
 }
 

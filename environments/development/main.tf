@@ -1,5 +1,30 @@
-module "ec2_instances" {
-  source = "../../modules/ec2"
+module iam {
+  source = "../../modules/iam"
+}
+
+module ssm {
+  source = "../../modules/ssm"
+}
+
+module keypair {
+  source = "../../modules/keypair"
+}
+
+module networking {
+  source = "../../modules/networking"
+}
+
+module security_groups {
+  source = "../../modules/security_groups"
+
+  vpc_id          = module.networking.vpc_id
+  vpc_cidr_block  = module.networking.vpc_cidr_block
+  
+  depends_on = [module.networking]
+}
+
+module "compute" {
+  source = "../../modules/compute"
   
   # Pass AWS resources from development module
   private_subnets                     = module.networking.private_subnets
@@ -14,29 +39,4 @@ module "ec2_instances" {
   vpc_id                              = module.networking.vpc_id
   
   depends_on = [module.iam, module.keypair, module.networking, module.security_groups]
-}
-
-module iam {
-  source = "../../modules/iam"
-}
-
-module keypair {
-  source = "../../modules/keypair"
-}
-
-module ssm {
-  source = "../../modules/ssm"
-}
-
-module networking {
-  source = "../../modules/networking"
-}
-
-module security_groups {
-  source = "../../modules/security_groups"
-
-  vpc_id = module.networking.vpc_id
-  vpc_cidr_block = module.networking.vpc_cidr_block
-  
-  depends_on = [module.networking]
 }

@@ -1,23 +1,11 @@
 # Bastion Host Security Group
 resource "aws_security_group" "bastion" {
-  name        = "bastion-sg"
-  description = "Security group for the bastion host"
+  name        = "bastion-sg" 
   vpc_id      = var.vpc_id
-  tags = {
-    Name = "${terraform.workspace} - Bastion SG"
-  }
-}
-
-# Bastion Host Ingress Rule (SSH from specific IP)
-resource "aws_vpc_security_group_ingress_rule" "bastion_ssh" {
-  security_group_id = aws_security_group.bastion.id
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
-  cidr_ipv4         = var.vpc_cidr_block
+  description = "Security group for the bastion host"
 
   tags = {
-    Name = "${terraform.workspace} - Bastion SG"
+    Name = "${terraform.workspace} - Bastion Host SG"
   }
 }
 
@@ -27,22 +15,23 @@ resource "aws_vpc_security_group_ingress_rule" "bastion_ssh_anywhere" {
   to_port           = 22
   ip_protocol       = "tcp"
   cidr_ipv4         = "0.0.0.0/0"
+  description       = "Allow SSH access to bastion host from any IP address"
 
   tags = {
-    Name = "${terraform.workspace} - Bastion SG"
+    Name = "${terraform.workspace} - Bastion SSH Internet Access"
   }
 }
 
-# Bastion Host Egress Rule (Allow SSH to Control Plane)
-resource "aws_vpc_security_group_egress_rule" "bastion_egress" {
+resource "aws_vpc_security_group_egress_rule" "bastion_egress_control_plane" {
   security_group_id             = aws_security_group.bastion.id
   from_port                     = 22
   to_port                       = 22
   ip_protocol                   = "tcp"
   referenced_security_group_id  = aws_security_group.control_plane.id
+  description = "Allow SSH from bastion host to Kubernetes control plane nodes for cluster administration"
 
   tags = {
-    Name = "${terraform.workspace} - SSH Outgoing - Bastion SG / Control Plane SG"
+    Name = "${terraform.workspace} - Bastion SSH to Control Plane"
   }
 }
 
@@ -52,143 +41,138 @@ resource "aws_vpc_security_group_egress_rule" "bastion_egress_workers" {
   to_port                       = 22
   ip_protocol                   = "tcp"
   referenced_security_group_id  = aws_security_group.worker_node.id
-
+  description                   = "Allow SSH from bastion host to worker nodes for maintenance and troubleshooting"
+  
   tags = {
-    Name = "${terraform.workspace} - SSH Outgoing - Bastion / Worker Nodes SG"
+    Name = "${terraform.workspace} - Bastion SSH to Worker Nodes"
   }
 }
 
-// CONTROL PLANE
-# Control Plane Security Group
+# Control Plane
 resource "aws_security_group" "control_plane" {
-  name        = "control-plane-sg"
-  description = "Security group for the Kubernetes control plane"
+  name        = "control-plane-sg"  
   vpc_id      = var.vpc_id
+  description = "Security group for the Kubernetes control plane"
 
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG"
+    Name = "${terraform.workspace} - Kubernetes Control Plane SG"
   }
 }
 
-# Control Plane Ingress Rules
 resource "aws_vpc_security_group_ingress_rule" "control_plane_ssh" {
   security_group_id             = aws_security_group.control_plane.id
   from_port                     = 22
   to_port                       = 22
   ip_protocol                   = "tcp"
   referenced_security_group_id  = aws_security_group.bastion.id
+  description                   = "Allow SSH access to control plane nodes from bastion host for cluster administration"
 
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG / Bastion SG"
+    Name = "${terraform.workspace} - Control Plane SSH from Bastion"
   }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "control_plane_etcd" {
-  security_group_id             =   aws_security_group.control_plane.id
-  from_port                     =   2379
-  to_port                       =   2380
-  ip_protocol                   =   "tcp"
-  cidr_ipv4                     =   var.vpc_cidr_block
+  security_group_id = aws_security_group.control_plane.id
+  from_port         = 2379
+  to_port           = 2380
+  ip_protocol       = "tcp"
+  cidr_ipv4         = var.vpc_cidr_block
+  description       = "Allow etcd client and peer communication within VPC for Kubernetes cluster state management"
+
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG - etcd Server Client API"
+    Name = "${terraform.workspace} - Control Plane etcd Communication"
   }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "control_plane_self_control_plane" {
-  security_group_id             =   aws_security_group.control_plane.id
-  from_port                     =   10250
-  to_port                       =   10250
-  ip_protocol                   =   "tcp"
-  cidr_ipv4                     =   var.vpc_cidr_block
+  security_group_id = aws_security_group.control_plane.id
+  from_port         = 10250
+  to_port           = 10250
+  ip_protocol       = "tcp"
+  cidr_ipv4         = var.vpc_cidr_block
+  description       = "Allow kubelet API access within VPC for control plane node communication and monitoring"
+
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG - self, Control Plane"
+    Name = "${terraform.workspace} - Control Plane kubelet API"
   }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "control_plane_kube_scheduler" {
-  security_group_id             =   aws_security_group.control_plane.id
-  from_port                     =   10259
-  to_port                       =   10259
-  ip_protocol                   =   "tcp"
-  cidr_ipv4                   = var.vpc_cidr_block
+  security_group_id             = aws_security_group.control_plane.id
+  from_port                     = 10259
+  to_port                       = 10259
+  ip_protocol                   = "tcp"
+  cidr_ipv4                     = var.vpc_cidr_block
+  description                   = "Allow kube-scheduler metrics and health check access from VPC for cluster monitoring"
+
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG - kube scheduler"
+    Name = "${terraform.workspace} - Control Plane kube-scheduler"
   }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "control_plane_kube_controller_manager" {
-  security_group_id             =   aws_security_group.control_plane.id
-  from_port                     =   10257
-  to_port                       =   10257
-  ip_protocol                   =   "tcp"
-  cidr_ipv4                     =   var.vpc_cidr_block
+  security_group_id             = aws_security_group.control_plane.id
+  from_port                     = 10257
+  to_port                       = 10257
+  ip_protocol                   = "tcp"
+  cidr_ipv4                     = var.vpc_cidr_block
+  description                   = "Allow kube-controller-manager metrics and health check access from VPC for cluster monitoring"
+  
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG - kube controller manager"
+    Name = "${terraform.workspace} - Control Plane kube-controller-manager"
   }
 }
 
 resource "aws_vpc_security_group_egress_rule" "control_plane_egress_all" {
-  security_group_id =   aws_security_group.control_plane.id
-  ip_protocol       =   "-1"
-  cidr_ipv4         =   "0.0.0.0/0"
+  security_group_id             = aws_security_group.control_plane.id
+  
+  // Only https bound
+  // from_port                  =  443
+  // to_port                    =  443 
+  // ip_protocol                =  "tcp"
+
+  ip_protocol                   = "-1"
+  cidr_ipv4                     = "0.0.0.0/0"
+  description                   = "Allow all outbound traffic from control plane for AWS APIs, container registries, and external services"
+
   tags = {
-    Name = "${terraform.workspace} - Outgoing - Control Plane SG"
+    Name = "${terraform.workspace} - Control Plane Outbound All"
+  }
+}
+
+# Worker Node
+resource "aws_security_group" "worker_node" {
+  name        = "worker-node-sg"  
+  vpc_id      = var.vpc_id
+  description = "Security group for Kubernetes worker nodes - controls pod and application traffic"
+
+  tags = {
+    Name = "${terraform.workspace} - Worker Nodes SG"
   }
 }
 
 resource "aws_vpc_security_group_egress_rule" "worker_node_egress_all" {
-  security_group_id =   aws_security_group.worker_node.id
-  ip_protocol       =   "-1"
-  cidr_ipv4         =   "0.0.0.0/0"
+  security_group_id             = aws_security_group.worker_node.id
+  ip_protocol                   = "-1"
+  cidr_ipv4                     = "0.0.0.0/0"
+  description                   = "Allow all outbound traffic from worker nodes for container images, application traffic, and AWS services"
+  
   tags = {
-    Name = "${terraform.workspace} - Outgoing - Worker Node SG"
+    Name = "${terraform.workspace} - Worker Nodes Outbound All"
   }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "allow_nlb_health_check" {
-  security_group_id = aws_security_group.control_plane.id
-  from_port         = 6443
-  to_port           = 6443
-  ip_protocol       = "tcp"
-  cidr_ipv4         = "10.0.0.0/16"
-
-  tags = {
-    Name = "${terraform.workspace} - Control Plane SG - Allow NLB health check"
-  }
-}
-
-resource "aws_security_group" "elb" {
-  name        = "k8s-elb-sg"
-  description = "Security group for Kubernetes API load balancer"
-  vpc_id      = var.vpc_id
-
-  tags = {
-    Name = "k8s-elb"
-  }
-}
-
-// WORKER NODES
-# Worker Node Security Group
-resource "aws_security_group" "worker_node" {
-  name        = "worker-node-sg"
-  description = "Security group for the Kubernetes worker node"
-  vpc_id      = var.vpc_id
-
-  tags = {
-    Name = "${terraform.workspace} - Worker Node SG"
-  }
-}
-
-# Control Plane Ingress Rules
 resource "aws_vpc_security_group_ingress_rule" "worker_node_ssh" {
   security_group_id             = aws_security_group.worker_node.id
   from_port                     = 22
   to_port                       = 22
   ip_protocol                   = "tcp"
   referenced_security_group_id  = aws_security_group.bastion.id
+  description                   = "Allow SSH access to worker nodes from bastion host for maintenance and troubleshooting"
 
   tags = {
-    Name = "${terraform.workspace} - Worker Node SG / Bastion SG"
+    Name = "${terraform.workspace} - Worker Nodes SSH from Bastion"
   }
 }
 
@@ -198,19 +182,22 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_kubelet_api" {
   to_port                       =   10250
   ip_protocol                   =   "tcp"
   referenced_security_group_id  =   aws_security_group.control_plane.id
+  description = "Allow control plane access to worker node kubelet API for pod management and monitoring"
   tags = {
-    Name = "${terraform.workspace} - Worker Node SG - Kubelet API"
+    Name = "${terraform.workspace} - Worker Nodes kubelet API"
   }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "worker_node_kube_proxy" {
-  security_group_id             =   aws_security_group.worker_node.id
-  from_port                     =   10256
-  to_port                       =   10256
-  ip_protocol                   =   "tcp"
-  referenced_security_group_id  =   aws_security_group.elb.id
+  security_group_id             = aws_security_group.worker_node.id
+  from_port                     = 10256
+  to_port                       = 10256
+  ip_protocol                   = "tcp"
+  referenced_security_group_id  = aws_security_group.elb.id
+  description                   = "Allow load balancer access to kube-proxy health check endpoint on worker nodes"
+  
   tags = {
-    Name = "${terraform.workspace} - Worker Node SG - Kube Proxy"
+    Name = "${terraform.workspace} - Worker Nodes kube-proxy"
   }
 }
 
@@ -220,8 +207,9 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_tcp_nodeport_service
   to_port             =   32767
   ip_protocol         =   "tcp"
   cidr_ipv4           =   "0.0.0.0/0"
+  description         = "Allow internet access to Kubernetes NodePort services (TCP 30000-32767) for application traffic"
   tags = {
-    Name = "${terraform.workspace} - Worker Node SG - NodePort Services TCP"
+    Name = "${terraform.workspace} - Worker Nodes NodePort TCP"
   }
 }
 
@@ -231,59 +219,36 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_udp_nodeport_service
   to_port             =   32767
   ip_protocol         =   "udp"
   cidr_ipv4           =   "0.0.0.0/0"
+  description         = "Allow internet access to Kubernetes NodePort services (UDP 30000-32767) for application traffic"
   tags = {
-    Name = "${terraform.workspace} - Worker Node SG - NodePort Services UDP"
+    Name = "${terraform.workspace} - Worker Nodes NodePort UDP"
   }
 }
 
-#########
-# ELB Security Group Ingress Rules
-resource "aws_vpc_security_group_ingress_rule" "elb_api_server" {
-  security_group_id = aws_security_group.elb.id
+# NLB
+resource "aws_vpc_security_group_ingress_rule" "allow_nlb_health_check" {
+  security_group_id = aws_security_group.control_plane.id
   from_port         = 6443
   to_port           = 6443
   ip_protocol       = "tcp"
-  cidr_ipv4         = "0.0.0.0/0"  # Or restrict to specific CIDR blocks as needed
+  cidr_ipv4         = "10.0.0.0/16"
+  description       = "Allow Network Load Balancer health checks to Kubernetes API server on port 6443"
 
   tags = {
-    Name = "${terraform.workspace} - ELB SG - Kubernetes API Server"
+    Name = "${terraform.workspace} - Control Plane NLB Health Check"
   }
 }
 
-# ELB Security Group Egress Rules
-resource "aws_vpc_security_group_egress_rule" "elb_to_control_plane" {
-  security_group_id            = aws_security_group.elb.id
-  from_port                    = 6443
-  to_port                      = 6443
-  ip_protocol                  = "tcp"
-  referenced_security_group_id = aws_security_group.control_plane.id
-
-  tags = {
-    Name = "${terraform.workspace} - ELB SG to Control Plane SG"
-  }
-}
-
-# Update Control Plane Security Group to allow traffic from ELB
-resource "aws_vpc_security_group_ingress_rule" "control_plane_api_from_elb" {
-  security_group_id             = aws_security_group.control_plane.id
-  from_port                     = 6443
-  to_port                       = 6443
-  ip_protocol                   = "tcp"
-  referenced_security_group_id  = aws_security_group.elb.id
-
-  tags = {
-    Name = "${terraform.workspace} - Control Plane SG - API Server from ELB"
-  }
-}
-
+# BGP
 resource "aws_vpc_security_group_ingress_rule" "allow_bgp" {
   security_group_id   = aws_security_group.control_plane.id
   from_port           = 179
   to_port             = 179
   ip_protocol         = "tcp"
   cidr_ipv4           = var.vpc_cidr_block
+  description         = "Allow BGP protocol communication within VPC for network routing and service mesh"
 
   tags = {
-    Name = "${terraform.workspace} - Control Plane SG - Allow BGP"
+    Name = "${terraform.workspace} - Control Plane BGP Communication"
   }
 }

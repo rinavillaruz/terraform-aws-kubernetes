@@ -5,5 +5,6 @@ variable "vpc_id" {
 }
 
 variable "vpc_cidr_block" {
-    type        = string
+  description = "CIDR block of the VPC for internal network communication"
+  type        = string
 }

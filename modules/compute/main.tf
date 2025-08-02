@@ -9,7 +9,21 @@ resource "aws_instance" "bastion" {
   private_ip              = var.bastion.private_ip
 
   tags = {
-    Name = "${terraform.workspace} - ${var.bastion.name}"
+    Name                = "${terraform.workspace} - ${var.bastion.name}"
+    Environment         = terraform.workspace
+    Project             = "Kubernetes"
+    Role                = "bastion-host"
+    ManagedBy           = "Terraform"
+    CostCenter          = "Infrastructure"
+    MonitoringEnabled   = "true"
+    # AvailabilityZone    = var.public_subnets[count.index].availability_zone
+    SubnetType          = "public"
+    # InstanceIndex       = count.index + 1
+    CreatedDate         = formatdate("YYYY-MM-DD", timestamp())
+  }
+
+  lifecycle {
+    ignore_changes = [tags["CreatedDate"]]
   }
 }
 
@@ -147,7 +161,21 @@ resource "aws_instance" "control_plane_secondary" {
   depends_on = [null_resource.wait_for_master_ready]
 
   tags = {
-    Name = "${terraform.workspace} - ${var.control_plane_secondary.name} ${each.value + 1}"
+    Name              = "${terraform.workspace} - ${var.control_plane.name}"
+    Environment       = terraform.workspace
+    Project           = "Kubernetes"
+    Role              = "control-plane"
+    ManagedBy         = "Terraform"
+    CostCenter        = "Infrastructure"
+    MonitoringEnabled = "true"
+    # AvailabilityZone  = var.private_subnets[0].availability_zone
+    SubnetType        = "private"
+    # InstanceIndex     = each.key
+    CreatedDate       = formatdate("YYYY-MM-DD", timestamp())
+  }
+
+  lifecycle {
+    ignore_changes = [tags["CreatedDate"]]
   }
 }
 
@@ -176,8 +204,24 @@ resource "aws_instance" "worker_nodes" {
   # Wait for at least the master control plane to be ready
   depends_on = [null_resource.wait_for_master_ready]
 
-  tags = {
-    Name = "${terraform.workspace} - ${var.worker_nodes.name} ${count.index + 1}"
+   tags = {
+    Name              = "${terraform.workspace} - ${var.worker_nodes.name} ${count.index + 1}"
+    Environment       = terraform.workspace
+    Project           = "Kubernetes"
+    Role              = "worker-node"
+    ManagedBy         = "Terraform"
+    CostCenter        = "Infrastructure"
+    MonitoringEnabled = "true"
+    # AvailabilityZone  = var.private_subnets[count.index % length(var.private_subnets)].availability_zone
+    SubnetType        = "private"
+    # InstanceIndex     = count.index + 1
+    NodeType          = "compute"
+    WorkloadCapable   = "true"
+    CreatedDate       = formatdate("YYYY-MM-DD", timestamp())
+  }
+
+  lifecycle {
+    ignore_changes = [tags["CreatedDate"]]
   }
 }
 
@@ -250,6 +294,28 @@ resource "aws_lb" "k8s_api" {
   internal           =  true
   load_balancer_type =  "network"
   subnets            =  [for subnet in var.private_subnets : subnet.id]
+
+  tags = {
+    Name              = "${terraform.workspace} - Kubernetes API Load Balancer"
+    Environment       = terraform.workspace
+    Project           = "Kubernetes"
+    Role              = "api-load-balancer"
+    Component         = "networking"
+    Purpose           = "kubernetes-api-endpoint"
+    ManagedBy         = "Terraform"
+    CostCenter        = "Infrastructure"
+    MonitoringEnabled = "true"
+    LoadBalancerType  = "network"
+    Scheme            = "internal"
+    Protocol          = "tcp"
+    HighAvailability  = "true"
+    SecurityLevel     = "high"
+    CreatedDate       = formatdate("YYYY-MM-DD", timestamp())
+  }
+
+  lifecycle {
+    ignore_changes = [tags["CreatedDate"]]
+  }
 }
 
 resource "aws_lb_target_group" "k8s_api" {
@@ -264,6 +330,28 @@ resource "aws_lb_target_group" "k8s_api" {
     healthy_threshold   =   2
     unhealthy_threshold =   2
     interval            =   10
+  }
+
+  tags = {
+    Name              = "${terraform.workspace} - Kubernetes API Target Group"
+    Environment       = terraform.workspace
+    Project           = "Kubernetes"
+    Role              = "api-target-group"
+    Component         = "networking"
+    Purpose           = "kubernetes-api-health-check"
+    ManagedBy         = "Terraform"
+    CostCenter        = "Infrastructure"
+    MonitoringEnabled = "true"
+    Protocol          = "TCP"
+    Port              = "6443"
+    HealthCheck       = "enabled"
+    ServiceType       = "kubernetes-api-server"
+    TargetType        = "control-plane-nodes"
+    CreatedDate       = formatdate("YYYY-MM-DD", timestamp())
+  }
+
+  lifecycle {
+    ignore_changes = [tags["CreatedDate"]]
   }
 }
 
