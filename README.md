@@ -110,11 +110,12 @@ or you can execute environments/development/bastion-access.sh
 ```
 
 ## 📝 Changelog
-**July 8, 2025**
-- Refactor Terraform scripts into reusable modules
+**August 2, 2025**
+- Added descriptions and tags to all resources
 
 **July 8, 2025**
 - Refactor Terraform scripts into reusable modules
+
 **July 3, 2025**
 - Shared logging and error handling across all nodes.
 - Enhanced control plane initialization. It waits for Control Plane 1 to be ready before creating Control Planes 2 and 3 for smooth joining. 
