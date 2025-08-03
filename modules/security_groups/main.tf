@@ -177,12 +177,12 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_ssh" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "worker_node_kubelet_api" {
-  security_group_id             =   aws_security_group.worker_node.id
-  from_port                     =   10250
-  to_port                       =   10250
-  ip_protocol                   =   "tcp"
-  referenced_security_group_id  =   aws_security_group.control_plane.id
-  description = "Allow control plane access to worker node kubelet API for pod management and monitoring"
+  security_group_id             = aws_security_group.worker_node.id
+  from_port                     = 10250
+  to_port                       = 10250
+  ip_protocol                   = "tcp"
+  referenced_security_group_id  = aws_security_group.control_plane.id
+  description                   = "Allow control plane access to worker node kubelet API for pod management and monitoring"
   tags = {
     Name = "${terraform.workspace} - Worker Nodes kubelet API"
   }
@@ -207,7 +207,7 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_tcp_nodeport_service
   to_port             =   32767
   ip_protocol         =   "tcp"
   cidr_ipv4           =   "0.0.0.0/0"
-  description         = "Allow internet access to Kubernetes NodePort services (TCP 30000-32767) for application traffic"
+  description         =   "Allow internet access to Kubernetes NodePort services (TCP 30000-32767) for application traffic"
   tags = {
     Name = "${terraform.workspace} - Worker Nodes NodePort TCP"
   }
@@ -219,7 +219,7 @@ resource "aws_vpc_security_group_ingress_rule" "worker_node_udp_nodeport_service
   to_port             =   32767
   ip_protocol         =   "udp"
   cidr_ipv4           =   "0.0.0.0/0"
-  description         = "Allow internet access to Kubernetes NodePort services (UDP 30000-32767) for application traffic"
+  description         =   "Allow internet access to Kubernetes NodePort services (UDP 30000-32767) for application traffic"
   tags = {
     Name = "${terraform.workspace} - Worker Nodes NodePort UDP"
   }
@@ -231,7 +231,7 @@ resource "aws_vpc_security_group_ingress_rule" "allow_nlb_health_check" {
   from_port         = 6443
   to_port           = 6443
   ip_protocol       = "tcp"
-  cidr_ipv4         = "10.0.0.0/16"
+  cidr_ipv4         = var.vpc_cidr_block
   description       = "Allow Network Load Balancer health checks to Kubernetes API server on port 6443"
 
   tags = {

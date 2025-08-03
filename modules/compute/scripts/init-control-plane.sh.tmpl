@@ -354,23 +354,6 @@ EOF
       sleep 10
     fi
   done
-
-  # Needs to wait for 2 mins for worker nodes to show
-  sleep 120
-
-  if workers=$(KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes --no-headers 2>/dev/null | grep '<none>' | awk '{print $1}'); then
-    for worker in $workers; do
-      if [ -n "$worker" ]; then
-        log_step "49" "Labeling $worker as worker..."
-        if ! KUBECONFIG=/etc/kubernetes/admin.conf kubectl label node $worker node-role.kubernetes.io/worker=worker; then
-          log_error "50" "Failed to label worker node $worker"
-        fi
-      fi
-    done
-    log_step "50" "SUCCEEDED Worker Node role changed from <none> to worker"
-  else
-    log_step "50" "FAILED No worker nodes found to label"
-  fi
 else
   sleep 120
   log_step "28" "Waited 2 minutes before retrieving join command"

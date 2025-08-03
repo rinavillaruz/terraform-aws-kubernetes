@@ -6,7 +6,7 @@ resource "random_id" "cluster" {
 }
 
 resource "aws_iam_role" "kubernetes_master" {
-  name = "kubernetes-master-role"
+  name = "kubernetes-master-role-${random_id.cluster.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -96,7 +96,7 @@ resource "aws_iam_role" "kubernetes_worker" {
 }
 
 resource "aws_iam_instance_profile" "kubernetes_worker" {
-  name = "kubernetes-worker-profile"
+  name = "kubernetes-worker-profile-${random_id.cluster.hex}" 
   role = aws_iam_role.kubernetes_worker.name
 
   tags = {
